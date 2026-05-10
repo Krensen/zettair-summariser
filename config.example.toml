@@ -1,0 +1,52 @@
+# zettair-summariser config — copy to config.toml on a fresh Mac Mini.
+# config.toml is gitignored so each machine carries its own.
+
+[prod]
+# SSH-able host that holds the queue. The user must be `sparky` (or
+# an equivalent) with key auth set up.
+ssh_host = "sparky@zettair-prod"
+
+# Remote directories that hold the queue. These are owned by zettair
+# on prod with group `summariser`; sparky is in that group.
+remote_pending = "/mnt/wikipedia-source/summaries/pending"
+remote_done    = "/mnt/wikipedia-source/summaries/done"
+remote_errors  = "/mnt/wikipedia-source/summaries/errors"
+
+[local]
+# Where the worker stages files on the Mac Mini. setup.sh creates these.
+inbox           = "~/zettair-summariser-data/inbox"
+inbox_processed = "~/zettair-summariser-data/inbox-processed"
+outbox          = "~/zettair-summariser-data/outbox"
+errors_outbox   = "~/zettair-summariser-data/errors-outbox"
+logs            = "~/zettair-summariser-data/logs"
+
+[model]
+# v1 supports two backends:
+#   "stub"  → echo a deterministic placeholder summary (M4 stub).
+#   "ollama"→ call a local ollama server.
+backend = "stub"
+
+# Used when backend = "ollama". Override per-machine if you run a
+# different model. The default is reasonable for an M1/M2 Mac Mini
+# with 16GB RAM.
+ollama_url   = "http://localhost:11434"
+ollama_model = "llama3.1:8b-instruct-q4_K_M"
+
+# Per-doc text cap when assembling the prompt. 12 KB is comfortable
+# for 8B-class models with 128k context. Drop to 4 KB for tighter
+# models.
+per_doc_cap_bytes = 12000
+
+# How many top-M documents from the job to include in the prompt.
+top_m = 5
+
+# Hard cap on output tokens. ~400 = ~300 words = body + 5 bullets.
+max_output_tokens = 400
+
+[poll]
+# How long to sleep between rsync sweeps when poll.py is invoked
+# in --daemon mode. The launchd plist also fires it on a timer.
+interval_seconds = 120
+
+# Max jobs to process per sweep. Keeps a single sweep bounded.
+max_jobs_per_sweep = 25

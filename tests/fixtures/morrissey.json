@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "query": "morrissey",
+  "query_norm": "morrissey",
+  "click_weight": 12000,
+  "score_ratio": 1.18,
+  "intent": "info",
+  "created_at": "2026-05-11T01:23:45Z",
+  "source": "bulk",
+  "results": [
+    {
+      "docid": 1067952,
+      "rank": 1,
+      "title": "Morrissey",
+      "url": "https://en.wikipedia.org/wiki/Morrissey",
+      "score": 113.43,
+      "text": "Morrissey is an English singer and songwriter, born Steven Patrick Morrissey on 22 May 1959 in Davyhulme, Lancashire. He rose to prominence in the 1980s as the frontman of the indie rock band the Smiths, which he founded with guitarist Johnny Marr in 1982. After the Smiths disbanded in 1987, Morrissey launched a solo career, releasing his debut album Viva Hate in 1988. He has since released more than a dozen studio albums and continues to tour. Morrissey is known for his distinctive baritone voice, his witty and politically charged lyrics, and his outspoken advocacy for animal rights and vegetarianism."
+    },
+    {
+      "docid": 12,
+      "rank": 2,
+      "title": "The Smiths",
+      "url": "https://en.wikipedia.org/wiki/The_Smiths",
+      "score": 90.5,
+      "text": "The Smiths were an English rock band formed in Manchester in 1982. The band consisted of vocalist Morrissey, guitarist Johnny Marr, bassist Andy Rourke and drummer Mike Joyce. Critics have called them one of the most important bands to emerge from the British independent music scene of the 1980s."
+    }
+  ]
+}

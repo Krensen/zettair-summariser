@@ -117,12 +117,13 @@ def parse_summary(raw: str, head_term: str) -> str:
         if n == 0:
             raise ValueError(f"head term {head_term!r} not present in output")
 
-    # Soft length check. Too short → probably a refusal. Too long → over the
-    # bullet cap. Both are retried by the worker.
+    # Length check. Too short → probably a refusal. Too long → model
+    # ignored the 60-100 word target. We don't ship overshoots — the
+    # worker will retry up to 3 times via the ollama backend.
     word_count = len(text.split())
     if word_count < 30:
         raise ValueError(f"output too short ({word_count} words)")
-    if word_count > 400:
+    if word_count > 200:
         raise ValueError(f"output too long ({word_count} words)")
 
     return text

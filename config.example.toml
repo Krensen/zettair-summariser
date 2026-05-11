@@ -40,8 +40,11 @@ per_doc_cap_bytes = 12000
 # How many top-M documents from the job to include in the prompt.
 top_m = 5
 
-# Hard cap on output tokens. ~400 = ~300 words = body + 5 bullets.
-max_output_tokens = 400
+# Generous ceiling on output tokens. We rely on prompt.parse_summary's
+# word-count check to reject over-runs and let the ollama backend retry;
+# we never ship a mid-sentence truncation. 350 ≈ 260 words, plenty of
+# headroom for a well-behaved 100-word body + 5 bullets.
+max_output_tokens = 350
 
 [poll]
 # How long to sleep between rsync sweeps when poll.py is invoked

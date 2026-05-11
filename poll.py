@@ -249,18 +249,26 @@ def sweep(cfg: dict) -> None:
     # ~10-15 min.
     push_every = cfg["poll"].get("push_every", 5)
 
-    n_ok = n_err = 0
+    n_ok = n_err = n_skipped = 0
     n_pushed_done = n_pushed_err = 0
     since_last_push = 0
     t0 = time.time()
     for i, j in enumerate(jobs, 1):
-        outcome, qnorm = process_one(cfg, j)
+        # Claim the job by atomically moving it into inbox-processed/
+        # BEFORE doing any work. If the move fails the file is already
+        # gone — another worker (launchd + a manual run racing, etc.)
+        # has it. Skip cleanly; we pay no LLM cost for duplicates.
+        claimed = processed_dir / j.name
+        try:
+            j.replace(claimed)
+        except FileNotFoundError:
+            n_skipped += 1
+            continue
+        outcome, qnorm = process_one(cfg, claimed)
         if outcome == "ok":
             n_ok += 1
         elif outcome == "error":
             n_err += 1
-        # Audit-trail move regardless of outcome
-        j.replace(processed_dir / j.name)
 
         since_last_push += 1
         # Push intermediately when we've accumulated push_every results,
@@ -275,7 +283,7 @@ def sweep(cfg: dict) -> None:
     log(
         cfg,
         f"sweep: pri_pulled={pri_pulled} bulk_pulled={bulk_pulled} "
-        f"processed={len(jobs)} ok={n_ok} err={n_err} "
+        f"processed={len(jobs)} ok={n_ok} err={n_err} skipped={n_skipped} "
         f"pushed_done={n_pushed_done} pushed_err={n_pushed_err} "
         f"elapsed={elapsed:.1f}s",
     )

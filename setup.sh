@@ -93,18 +93,24 @@ cat > "$PLIST_PATH" <<PLIST
 PLIST
 
 # Reload — bootout is idempotent (no error if not loaded).
+# Stop the running agent BEFORE the smoke test so we don't race it for
+# the same files, then bootstrap fresh after.
 launchctl bootout "gui/$(id -u)/$PLIST_NAME" 2>/dev/null || true
-launchctl bootstrap "gui/$(id -u)" "$PLIST_PATH"
-log "  launchd job loaded; first run will fire now."
 
 ### ── 6. Quick smoke test ─────────────────────────────────────────────────
+# Run BEFORE bootstrapping the launchd agent — otherwise the agent's
+# first fire (RunAtLoad=true) and this synchronous call race for the
+# same inbox files, which used to produce a FileNotFoundError mid-sweep.
 log "Running one --once sweep to verify..."
 ( cd "$REPO_DIR" && python3 poll.py --once ) || {
     log "Smoke test failed. Check $DATA_DIR/logs/poll.log"
     exit 1
 }
 
-log "Setup complete. Worker will sweep every $INTERVAL seconds."
+launchctl bootstrap "gui/$(id -u)" "$PLIST_PATH"
+log "  launchd job loaded; will sweep every $INTERVAL seconds."
+
+log "Setup complete."
 log "  log:   tail -f $DATA_DIR/logs/poll.log"
 log "  stop:  launchctl bootout gui/\$(id -u)/$PLIST_NAME"
 log "  start: launchctl bootstrap gui/\$(id -u) $PLIST_PATH"

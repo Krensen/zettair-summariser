@@ -68,6 +68,20 @@ def log(cfg: dict, msg: str) -> None:
 
 # -- rsync helpers ----------------------------------------------------------
 
+# `-a` is `-rlptgoD`; the `-p` / `-t` / `-g` / `-o` bits all need
+# write permission on the directory itself (not just its contents),
+# which sparky doesn't have on the prod queue dirs (owned by zettair,
+# mode 2775 — group can write entries, not modify dir metadata).
+# We want destination defaults for everything anyway. `-rv` for
+# recursion + verbose plus the explicit `--no-*` flags is enough.
+RSYNC_FLAGS = [
+    "-rv",
+    "--no-perms", "--no-owner", "--no-group",
+    "--no-times", "--omit-dir-times",
+    "--remove-source-files",
+]
+
+
 def rsync_pull(cfg: dict) -> int:
     """Pull pending/*.json from prod to local inbox. Returns count claimed."""
     inbox = cfg["local"]["inbox"]
@@ -75,7 +89,7 @@ def rsync_pull(cfg: dict) -> int:
     remote = f'{cfg["prod"]["ssh_host"]}:{cfg["prod"]["remote_pending"]}/'
     before = len(list(inbox.glob("*.json")))
     cmd = [
-        "rsync", "-av", "--remove-source-files",
+        "rsync", *RSYNC_FLAGS,
         "--include=*.json", "--exclude=*",
         remote, str(inbox) + "/",
     ]
@@ -99,7 +113,7 @@ def rsync_push(cfg: dict) -> tuple[int, int]:
 
     if n_done:
         cmd = [
-            "rsync", "-av", "--remove-source-files",
+            "rsync", *RSYNC_FLAGS,
             "--include=*.md", "--exclude=*",
             str(out) + "/",
             f'{cfg["prod"]["ssh_host"]}:{cfg["prod"]["remote_done"]}/',
@@ -111,7 +125,7 @@ def rsync_push(cfg: dict) -> tuple[int, int]:
 
     if n_err:
         cmd = [
-            "rsync", "-av", "--remove-source-files",
+            "rsync", *RSYNC_FLAGS,
             "--include=*.json", "--exclude=*",
             str(err) + "/",
             f'{cfg["prod"]["ssh_host"]}:{cfg["prod"]["remote_errors"]}/',

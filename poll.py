@@ -143,8 +143,23 @@ def rsync_push(cfg: dict) -> tuple[int, int]:
 def process_one(cfg: dict, job_file: Path) -> tuple[str, str]:
     """Run one job. Returns (outcome, query_norm) where outcome is
     'ok' / 'error' / 'skip'."""
-    with open(job_file, encoding="utf-8") as f:
-        raw = json.load(f)
+    # Read as bytes and decode with errors=replace. Producer should
+    # write valid UTF-8, but if a job slipped through with bad bytes
+    # we'd rather replace them than crash the whole sweep.
+    try:
+        raw = json.loads(job_file.read_bytes().decode("utf-8", errors="replace"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as e:
+        query_norm = job_file.stem
+        err_path = cfg["local"]["errors_outbox"] / f"{query_norm}.error.json"
+        err_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(err_path, "w", encoding="utf-8") as f:
+            json.dump({
+                "query_norm": query_norm,
+                "error": f"unparseable job file: {type(e).__name__}: {e}",
+                "failed_at": dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "backend": cfg["model"].get("backend"),
+            }, f, indent=2)
+        return ("error", query_norm)
     query_norm = raw.get("query_norm", job_file.stem)
     try:
         job = gen.job_from_pending_json(raw)

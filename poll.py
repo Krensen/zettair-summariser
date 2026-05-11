@@ -204,9 +204,18 @@ def sweep(cfg: dict) -> None:
         rsync_push(cfg)
         return
 
+    # Push every push_every jobs (default 5) so prod sees summaries
+    # land continuously instead of waiting for the whole sweep to
+    # finish. At 2-4 min per generation, a full sweep can take an hour;
+    # we want the live site to start showing summaries within the first
+    # ~10-15 min.
+    push_every = cfg["poll"].get("push_every", 5)
+
     n_ok = n_err = 0
+    n_pushed_done = n_pushed_err = 0
+    since_last_push = 0
     t0 = time.time()
-    for j in jobs:
+    for i, j in enumerate(jobs, 1):
         outcome, qnorm = process_one(cfg, j)
         if outcome == "ok":
             n_ok += 1
@@ -215,13 +224,21 @@ def sweep(cfg: dict) -> None:
         # Audit-trail move regardless of outcome
         j.replace(processed_dir / j.name)
 
-    pushed_ok, pushed_err = rsync_push(cfg)
+        since_last_push += 1
+        # Push intermediately when we've accumulated push_every results,
+        # OR when we've reached the end of the batch.
+        if since_last_push >= push_every or i == len(jobs):
+            d, e = rsync_push(cfg)
+            n_pushed_done += d
+            n_pushed_err  += e
+            since_last_push = 0
+
     elapsed = time.time() - t0
     log(
         cfg,
         f"sweep: pulled={pulled} processed={len(jobs)} "
-        f"ok={n_ok} err={n_err} pushed_done={pushed_ok} pushed_err={pushed_err} "
-        f"elapsed={elapsed:.1f}s",
+        f"ok={n_ok} err={n_err} pushed_done={n_pushed_done} "
+        f"pushed_err={n_pushed_err} elapsed={elapsed:.1f}s",
     )
 
 

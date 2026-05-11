@@ -50,3 +50,9 @@ interval_seconds = 120
 
 # Max jobs to process per sweep. Keeps a single sweep bounded.
 max_jobs_per_sweep = 25
+
+# Push completed summaries to prod every N jobs (instead of only at
+# the end of the sweep). At 2-4 min per generation, a full 25-job
+# sweep takes 50-100 min; without intermediate pushes, prod sees
+# nothing for that whole window. Default 5 = pushes every ~10-15 min.
+push_every = 5

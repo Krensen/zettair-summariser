@@ -47,6 +47,10 @@ def load_config(path: Path) -> dict:
     # Expand ~ in local paths
     for k, v in cfg.get("local", {}).items():
         cfg["local"][k] = Path(os.path.expanduser(v))
+    # Default priority_inbox next to inbox if the user hasn't set one in
+    # their config.toml. Existing configs keep working without edits.
+    if "priority_inbox" not in cfg["local"] and "inbox" in cfg["local"]:
+        cfg["local"]["priority_inbox"] = cfg["local"]["inbox"].parent / "priority-inbox"
     return cfg
 
 
@@ -82,22 +86,38 @@ RSYNC_FLAGS = [
 ]
 
 
-def rsync_pull(cfg: dict) -> int:
-    """Pull pending/*.json from prod to local inbox. Returns count claimed."""
-    inbox = cfg["local"]["inbox"]
-    inbox.mkdir(parents=True, exist_ok=True)
-    remote = f'{cfg["prod"]["ssh_host"]}:{cfg["prod"]["remote_pending"]}/'
-    before = len(list(inbox.glob("*.json")))
+def _rsync_pull_one(cfg: dict, remote_path: str, local_inbox) -> int:
+    """Pull *.json from one remote dir into one local inbox.
+    Returns number of new files claimed (post - pre)."""
+    local_inbox.mkdir(parents=True, exist_ok=True)
+    remote = f'{cfg["prod"]["ssh_host"]}:{remote_path}/'
+    before = len(list(local_inbox.glob("*.json")))
     cmd = [
         "rsync", *RSYNC_FLAGS,
         "--include=*.json", "--exclude=*",
-        remote, str(inbox) + "/",
+        remote, str(local_inbox) + "/",
     ]
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
-        log(cfg, f"rsync pull failed rc={r.returncode}: {r.stderr.strip()[:200]}")
-    after = len(list(inbox.glob("*.json")))
+        log(cfg, f"rsync pull {remote_path} failed rc={r.returncode}: {r.stderr.strip()[:200]}")
+    after = len(list(local_inbox.glob("*.json")))
     return max(0, after - before)
+
+
+def rsync_pull(cfg: dict) -> tuple[int, int]:
+    """Pull from BOTH priority/ and pending/ on prod into the local
+    priority-inbox and inbox respectively. Returns (priority_pulled,
+    pending_pulled). The priority dir's remote path falls back to
+    inferring it from remote_pending if not configured, so existing
+    config.toml files don't need editing immediately."""
+    pri = _rsync_pull_one(
+        cfg,
+        cfg["prod"].get("remote_priority")
+            or cfg["prod"]["remote_pending"].rsplit("/", 1)[0] + "/priority",
+        cfg["local"]["priority_inbox"],
+    )
+    bulk = _rsync_pull_one(cfg, cfg["prod"]["remote_pending"], cfg["local"]["inbox"])
+    return pri, bulk
 
 
 def rsync_push(cfg: dict) -> tuple[int, int]:
@@ -200,17 +220,27 @@ def process_one(cfg: dict, job_file: Path) -> tuple[str, str]:
 # -- sweep ------------------------------------------------------------------
 
 def sweep(cfg: dict) -> None:
-    pulled = rsync_pull(cfg)
+    pri_pulled, bulk_pulled = rsync_pull(cfg)
+    priority_inbox = cfg["local"]["priority_inbox"]
     inbox = cfg["local"]["inbox"]
     processed_dir = cfg["local"]["inbox_processed"]
     processed_dir.mkdir(parents=True, exist_ok=True)
 
-    jobs = sorted(inbox.glob("*.json"))[: cfg["poll"]["max_jobs_per_sweep"]]
+    max_jobs = cfg["poll"]["max_jobs_per_sweep"]
+    # Drain priority-inbox FIRST. If priority work fills the sweep
+    # budget, bulk pending waits another cycle. That's the whole
+    # point of having a priority lane.
+    pri_jobs = sorted(priority_inbox.glob("*.json"))[: max_jobs]
+    remaining = max_jobs - len(pri_jobs)
+    bulk_jobs = sorted(inbox.glob("*.json"))[: max(0, remaining)]
+    jobs = pri_jobs + bulk_jobs
     if not jobs:
-        log(cfg, f"sweep: pulled={pulled}, no jobs in inbox, nothing to do")
+        log(cfg, f"sweep: pri_pulled={pri_pulled} bulk_pulled={bulk_pulled}, no jobs anywhere")
         # Still push in case there are stale outbox/errors from last sweep
         rsync_push(cfg)
         return
+    if pri_jobs:
+        log(cfg, f"sweep: draining {len(pri_jobs)} priority + {len(bulk_jobs)} bulk")
 
     # Push every push_every jobs (default 5) so prod sees summaries
     # land continuously instead of waiting for the whole sweep to
@@ -244,9 +274,10 @@ def sweep(cfg: dict) -> None:
     elapsed = time.time() - t0
     log(
         cfg,
-        f"sweep: pulled={pulled} processed={len(jobs)} "
-        f"ok={n_ok} err={n_err} pushed_done={n_pushed_done} "
-        f"pushed_err={n_pushed_err} elapsed={elapsed:.1f}s",
+        f"sweep: pri_pulled={pri_pulled} bulk_pulled={bulk_pulled} "
+        f"processed={len(jobs)} ok={n_ok} err={n_err} "
+        f"pushed_done={n_pushed_done} pushed_err={n_pushed_err} "
+        f"elapsed={elapsed:.1f}s",
     )
 
 

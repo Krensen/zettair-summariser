@@ -8,13 +8,15 @@ ssh_host = "sparky@zettair-prod"
 
 # Remote directories that hold the queue. These are owned by zettair
 # on prod with group `summariser`; sparky is in that group.
-remote_pending = "/mnt/wikipedia-source/summaries/pending"
-remote_done    = "/mnt/wikipedia-source/summaries/done"
-remote_errors  = "/mnt/wikipedia-source/summaries/errors"
+remote_pending  = "/mnt/wikipedia-source/summaries/pending"
+remote_priority = "/mnt/wikipedia-source/summaries/priority"
+remote_done     = "/mnt/wikipedia-source/summaries/done"
+remote_errors   = "/mnt/wikipedia-source/summaries/errors"
 
 [local]
 # Where the worker stages files on the Mac Mini. setup.sh creates these.
 inbox           = "~/zettair-summariser-data/inbox"
+priority_inbox  = "~/zettair-summariser-data/priority-inbox"
 inbox_processed = "~/zettair-summariser-data/inbox-processed"
 outbox          = "~/zettair-summariser-data/outbox"
 errors_outbox   = "~/zettair-summariser-data/errors-outbox"

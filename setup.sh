@@ -49,7 +49,7 @@ log "Using $CONFIG_FILE"
 
 ### ── 3. Data directories ─────────────────────────────────────────────────
 log "Ensuring data directories exist at $DATA_DIR ..."
-mkdir -p "$DATA_DIR"/{inbox,inbox-processed,outbox,errors-outbox,logs}
+mkdir -p "$DATA_DIR"/{inbox,priority-inbox,inbox-processed,outbox,errors-outbox,logs}
 
 ### ── 4. SSH connectivity smoke test ──────────────────────────────────────
 SSH_HOST=$(python3 -c "import tomllib; print(tomllib.load(open('$CONFIG_FILE','rb'))['prod']['ssh_host'])")

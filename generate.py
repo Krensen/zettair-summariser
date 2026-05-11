@@ -28,14 +28,18 @@ class GenerationError(Exception):
     """Worker treats this as a soft failure — write to errors/ and move on."""
 
 
-def job_from_pending_json(raw: dict) -> Job:
-    """Turn a parsed pending/<query_norm>.json dict into a Job."""
+def job_from_pending_json(raw: dict, top_m: int = 5) -> Job:
+    """Turn a parsed pending/<query_norm>.json dict into a Job.
+
+    top_m caps how many of the producer's ranked results we hand to the
+    model. Producers may write 10+ results; the summariser only needs
+    the highest-ranked few."""
     if raw.get("schema_version") not in (None, 1):
         raise GenerationError(f"unknown schema_version {raw.get('schema_version')!r}")
     if not raw.get("query") or not raw.get("query_norm"):
         raise GenerationError("missing query / query_norm")
     docs = []
-    for r in raw.get("results", [])[:5]:  # hard top-5 cap on input
+    for r in raw.get("results", [])[:top_m]:
         docs.append(JobDoc(
             rank=int(r.get("rank", len(docs) + 1)),
             title=r.get("title") or r.get("docno") or "(untitled)",

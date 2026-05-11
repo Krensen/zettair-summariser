@@ -170,7 +170,7 @@ def process_one(cfg: dict, job_file: Path) -> tuple[str, str]:
         return ("error", query_norm)
     query_norm = raw.get("query_norm", job_file.stem)
     try:
-        job = gen.job_from_pending_json(raw)
+        job = gen.job_from_pending_json(raw, top_m=cfg["model"].get("top_m", 5))
         md = gen.generate(job, cfg["model"])
     except gen.GenerationError as e:
         # Write an error record; worker will rsync it to prod's errors/.

@@ -32,13 +32,16 @@ backend = "stub"
 ollama_url   = "http://localhost:11434"
 ollama_model = "llama3.1:8b-instruct-q4_K_M"
 
-# Per-doc text cap when assembling the prompt. 12 KB is comfortable
-# for 8B-class models with 128k context. Drop to 4 KB for tighter
-# models.
-per_doc_cap_bytes = 12000
+# Per-doc text cap when assembling the prompt. 6 KB ≈ 1500 tokens; with
+# top_m=3 the prompt comes in around 4500 tokens, which keeps
+# prompt-processing latency low on 4B-8B models. Bump to 12 KB if you
+# switch to a 32B+ model and want more context per doc.
+per_doc_cap_bytes = 6000
 
 # How many top-M documents from the job to include in the prompt.
-top_m = 5
+# 3 is the sweet spot for head queries — the top 3 docs almost always
+# carry the canonical article + 1-2 supporting refs.
+top_m = 3
 
 # Generous ceiling on output tokens. We rely on prompt.parse_summary's
 # word-count check to reject over-runs and let the ollama backend retry;

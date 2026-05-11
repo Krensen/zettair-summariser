@@ -54,6 +54,10 @@ class Job:
     query: str
     query_norm: str
     docs: list[JobDoc]
+    # PRD-021 news-spike fields. Only populated when mode == "news-spike".
+    mode: str = "biographical"
+    event_date: str | None = None
+    event_paragraph: str | None = None
 
 
 def cap_doc_text(text: str, cap_bytes: int) -> str:
@@ -66,6 +70,46 @@ def cap_doc_text(text: str, cap_bytes: int) -> str:
     while cut > 0 and (encoded[cut] & 0xC0) == 0x80:
         cut -= 1
     return encoded[:cut].decode("utf-8", errors="ignore").rstrip() + "…"
+
+
+# PRD-021: a separate prompt for "why is this in the news" summaries.
+# Single paragraph (no bullets), grounded in a Wikipedia article
+# paragraph that mentions a specific recent dated event. Producer
+# selects the paragraph; we just compress + style.
+NEWS_SYSTEM_PROMPT = """\
+You write very short knowledge-panel summaries explaining why a Wikipedia article is currently in the news.
+
+Output format — exactly this, nothing else:
+ONE paragraph of 60-100 words. Not more. Hard cap.
+
+Strict rules:
+- Start the paragraph by wrapping the topic title in **double asterisks**.
+- State the recent event with specific dates and names from the source.
+- Use the past tense for the event; present tense only for ongoing conditions.
+- No bullet points. No headings. No preamble like "Here is" or "Summary:". No closing remarks.
+- No URLs, reference markers, or images.
+- Use only facts in the source paragraph below. Do not invent or extrapolate.
+- Output the paragraph directly. Nothing before. Nothing after.
+"""
+
+
+def build_news_prompt(job: Job) -> tuple[str, str]:
+    """Build the (system, user) prompt for a news-spike job. Reads
+    job.event_paragraph as the sole source; the doc list (if any) is
+    ignored."""
+    para = job.event_paragraph or ""
+    date_line = (
+        f"The article was last edited around {job.event_date}.\n"
+        if job.event_date else ""
+    )
+    user = (
+        f'The article topic is "{job.query}".\n'
+        f"{date_line}"
+        f"Here is the relevant paragraph from the article body:\n\n"
+        f"{para}\n\n"
+        f"Write the summary now."
+    )
+    return NEWS_SYSTEM_PROMPT, user
 
 
 def build_prompt(job: Job, per_doc_cap_bytes: int = 12000) -> tuple[str, str]:

@@ -18,6 +18,7 @@ import urllib.request
 from prompt import (
     Job,
     JobDoc,
+    build_news_prompt,
     build_prompt,
     parse_summary,
     stub_summary,
@@ -33,7 +34,11 @@ def job_from_pending_json(raw: dict, top_m: int = 5) -> Job:
 
     top_m caps how many of the producer's ranked results we hand to the
     model. Producers may write 10+ results; the summariser only needs
-    the highest-ranked few."""
+    the highest-ranked few.
+
+    PRD-021: when raw.mode == "news-spike", we capture event_date +
+    event_paragraph instead of feeding doc text. The biographical and
+    news prompts diverge inside generate()."""
     if raw.get("schema_version") not in (None, 1):
         raise GenerationError(f"unknown schema_version {raw.get('schema_version')!r}")
     if not raw.get("query") or not raw.get("query_norm"):
@@ -45,7 +50,15 @@ def job_from_pending_json(raw: dict, top_m: int = 5) -> Job:
             title=r.get("title") or r.get("docno") or "(untitled)",
             text=r.get("text") or "",
         ))
-    return Job(query=raw["query"], query_norm=raw["query_norm"], docs=docs)
+    mode = raw.get("mode") or "biographical"
+    return Job(
+        query=raw["query"],
+        query_norm=raw["query_norm"],
+        docs=docs,
+        mode=mode,
+        event_date=raw.get("event_date"),
+        event_paragraph=raw.get("event_paragraph"),
+    )
 
 
 def generate(job: Job, cfg: dict) -> str:
@@ -64,7 +77,12 @@ def _generate_ollama(job: Job, cfg: dict) -> str:
     per_doc_cap = cfg.get("per_doc_cap_bytes", 12000)
     max_tokens = cfg.get("max_output_tokens", 400)
 
-    system, user = build_prompt(job, per_doc_cap)
+    if job.mode == "news-spike":
+        if not job.event_paragraph:
+            raise GenerationError("news-spike job missing event_paragraph")
+        system, user = build_news_prompt(job)
+    else:
+        system, user = build_prompt(job, per_doc_cap)
     payload = {
         "model": model,
         "messages": [

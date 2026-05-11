@@ -108,10 +108,11 @@ def rsync_push(cfg: dict) -> tuple[int, int]:
     out.mkdir(parents=True, exist_ok=True)
     err.mkdir(parents=True, exist_ok=True)
 
-    n_done = len(list(out.glob("*.md")))
-    n_err  = len(list(err.glob("*.json")))
+    before_done = len(list(out.glob("*.md")))
+    before_err  = len(list(err.glob("*.json")))
+    n_done = n_err = 0
 
-    if n_done:
+    if before_done:
         cmd = [
             "rsync", *RSYNC_FLAGS,
             "--include=*.md", "--exclude=*",
@@ -119,11 +120,15 @@ def rsync_push(cfg: dict) -> tuple[int, int]:
             f'{cfg["prod"]["ssh_host"]}:{cfg["prod"]["remote_done"]}/',
         ]
         r = subprocess.run(cmd, capture_output=True, text=True)
+        after_done = len(list(out.glob("*.md")))
+        n_done = before_done - after_done
         if r.returncode != 0:
-            log(cfg, f"rsync push done failed rc={r.returncode}: {r.stderr.strip()[:200]}")
-            n_done = 0  # treat as not-uploaded; will retry next sweep
+            log(cfg, f"rsync push done failed rc={r.returncode}: {r.stderr.strip()[:300]}")
+        elif n_done != before_done:
+            # rsync exited 0 but didn't actually move everything we expected.
+            log(cfg, f"rsync push done suspicious: before={before_done} after={after_done} stdout={r.stdout.strip()[:300]} stderr={r.stderr.strip()[:300]}")
 
-    if n_err:
+    if before_err:
         cmd = [
             "rsync", *RSYNC_FLAGS,
             "--include=*.json", "--exclude=*",
@@ -131,9 +136,12 @@ def rsync_push(cfg: dict) -> tuple[int, int]:
             f'{cfg["prod"]["ssh_host"]}:{cfg["prod"]["remote_errors"]}/',
         ]
         r = subprocess.run(cmd, capture_output=True, text=True)
+        after_err = len(list(err.glob("*.json")))
+        n_err = before_err - after_err
         if r.returncode != 0:
-            log(cfg, f"rsync push errors failed rc={r.returncode}: {r.stderr.strip()[:200]}")
-            n_err = 0
+            log(cfg, f"rsync push errors failed rc={r.returncode}: {r.stderr.strip()[:300]}")
+        elif n_err != before_err:
+            log(cfg, f"rsync push errors suspicious: before={before_err} after={after_err} stdout={r.stdout.strip()[:300]} stderr={r.stderr.strip()[:300]}")
 
     return n_done, n_err
 

@@ -83,7 +83,11 @@ def _generate_ollama(job: Job, cfg: dict) -> str:
                 data=body,
                 headers={"Content-Type": "application/json"},
             )
-            with urllib.request.urlopen(req, timeout=180) as resp:
+            # Generous timeout: cold-start model loads can take 1-2 min on
+            # small Minis, and a single 400-token generation at 8B-q4 is
+            # typically 3-10s after the model is warm. Override via the
+            # ollama_request_timeout config key.
+            with urllib.request.urlopen(req, timeout=600) as resp:
                 data = json.loads(resp.read())
             raw = (data.get("message") or {}).get("content", "")
             return parse_summary(raw, job.query)

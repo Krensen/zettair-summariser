@@ -219,74 +219,106 @@ def process_one(cfg: dict, job_file: Path) -> tuple[str, str]:
 
 # -- sweep ------------------------------------------------------------------
 
+def _next_job(cfg: dict):
+    """Pick the next job to process. Priority queue first, bulk after.
+    Returns a Path or None. Re-globs each call so newly-arrived
+    priority files preempt bulk work."""
+    pri = sorted(cfg["local"]["priority_inbox"].glob("*.json"))
+    if pri:
+        return pri[0], "priority"
+    bulk = sorted(cfg["local"]["inbox"].glob("*.json"))
+    if bulk:
+        return bulk[0], "bulk"
+    return None, None
+
+
 def sweep(cfg: dict) -> None:
-    pri_pulled, bulk_pulled = rsync_pull(cfg)
-    priority_inbox = cfg["local"]["priority_inbox"]
-    inbox = cfg["local"]["inbox"]
+    # Initial pull: bring both priority and bulk down before the loop
+    # starts. The intra-loop pulls below catch anything new that lands
+    # while we're processing.
+    pri_pulled_total, bulk_pulled_total = rsync_pull(cfg)
     processed_dir = cfg["local"]["inbox_processed"]
     processed_dir.mkdir(parents=True, exist_ok=True)
 
     max_jobs = cfg["poll"]["max_jobs_per_sweep"]
-    # Drain priority-inbox FIRST. If priority work fills the sweep
-    # budget, bulk pending waits another cycle. That's the whole
-    # point of having a priority lane.
-    pri_jobs = sorted(priority_inbox.glob("*.json"))[: max_jobs]
-    remaining = max_jobs - len(pri_jobs)
-    bulk_jobs = sorted(inbox.glob("*.json"))[: max(0, remaining)]
-    jobs = pri_jobs + bulk_jobs
-    if not jobs:
-        log(cfg, f"sweep: pri_pulled={pri_pulled} bulk_pulled={bulk_pulled}, no jobs anywhere")
-        # Still push in case there are stale outbox/errors from last sweep
-        rsync_push(cfg)
-        return
-    if pri_jobs:
-        log(cfg, f"sweep: draining {len(pri_jobs)} priority + {len(bulk_jobs)} bulk")
-
-    # Push every push_every jobs (default 5) so prod sees summaries
-    # land continuously instead of waiting for the whole sweep to
-    # finish. At 2-4 min per generation, a full sweep can take an hour;
-    # we want the live site to start showing summaries within the first
-    # ~10-15 min.
     push_every = cfg["poll"].get("push_every", 5)
 
+    # Each iteration:
+    #   1. Re-pull from priority/ on prod (cheap; rsync no-ops when empty).
+    #      This ensures newly-arrived priority jobs preempt bulk work
+    #      even mid-sweep instead of waiting hours for the next sweep.
+    #   2. Pick the next job — priority first, bulk fallback.
+    #   3. Process it.
+    # The intra-loop pull only does priority (not bulk) because bulk
+    # is huge and we don't want to pay rsync cost on every iteration.
     n_ok = n_err = n_skipped = 0
     n_pushed_done = n_pushed_err = 0
+    n_processed_pri = n_processed_bulk = 0
     since_last_push = 0
     t0 = time.time()
-    for i, j in enumerate(jobs, 1):
-        # Claim the job by atomically moving it into inbox-processed/
-        # BEFORE doing any work. If the move fails the file is already
-        # gone — another worker (launchd + a manual run racing, etc.)
-        # has it. Skip cleanly; we pay no LLM cost for duplicates.
+    pri_inbox = cfg["local"]["priority_inbox"]
+    for i in range(1, max_jobs + 1):
+        # Intra-loop priority pull. Use the dedicated pull helper for
+        # priority only — bulk is too expensive to re-pull each tick.
+        pri_pulled_now = _rsync_pull_one(
+            cfg,
+            cfg["prod"].get("remote_priority")
+                or cfg["prod"]["remote_pending"].rsplit("/", 1)[0] + "/priority",
+            pri_inbox,
+        )
+        if pri_pulled_now:
+            pri_pulled_total += pri_pulled_now
+            log(cfg, f"  intra-sweep: pulled {pri_pulled_now} priority job(s)")
+
+        j, source = _next_job(cfg)
+        if j is None:
+            break
+
+        # Claim the job atomically. If the file's gone (race with a
+        # parallel worker) skip without LLM cost.
         claimed = processed_dir / j.name
         try:
             j.replace(claimed)
         except FileNotFoundError:
             n_skipped += 1
             continue
+
         outcome, qnorm = process_one(cfg, claimed)
         if outcome == "ok":
             n_ok += 1
         elif outcome == "error":
             n_err += 1
+        if source == "priority":
+            n_processed_pri += 1
+        else:
+            n_processed_bulk += 1
 
         since_last_push += 1
-        # Push intermediately when we've accumulated push_every results,
-        # OR when we've reached the end of the batch.
-        if since_last_push >= push_every or i == len(jobs):
+        if since_last_push >= push_every:
             d, e = rsync_push(cfg)
             n_pushed_done += d
             n_pushed_err  += e
             since_last_push = 0
 
+    # Final push to flush anything left in outbox.
+    if since_last_push > 0 or n_ok > 0 or n_err > 0:
+        d, e = rsync_push(cfg)
+        n_pushed_done += d
+        n_pushed_err  += e
+
+    processed = n_processed_pri + n_processed_bulk
     elapsed = time.time() - t0
-    log(
-        cfg,
-        f"sweep: pri_pulled={pri_pulled} bulk_pulled={bulk_pulled} "
-        f"processed={len(jobs)} ok={n_ok} err={n_err} skipped={n_skipped} "
-        f"pushed_done={n_pushed_done} pushed_err={n_pushed_err} "
-        f"elapsed={elapsed:.1f}s",
-    )
+    if processed == 0 and n_skipped == 0:
+        log(cfg, f"sweep: pri_pulled={pri_pulled_total} bulk_pulled={bulk_pulled_total}, no jobs anywhere")
+    else:
+        log(
+            cfg,
+            f"sweep: pri_pulled={pri_pulled_total} bulk_pulled={bulk_pulled_total} "
+            f"processed={processed} (pri={n_processed_pri} bulk={n_processed_bulk}) "
+            f"ok={n_ok} err={n_err} skipped={n_skipped} "
+            f"pushed_done={n_pushed_done} pushed_err={n_pushed_err} "
+            f"elapsed={elapsed:.1f}s",
+        )
 
 
 # -- main -------------------------------------------------------------------

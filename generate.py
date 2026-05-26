@@ -18,8 +18,10 @@ import urllib.request
 from prompt import (
     Job,
     JobDoc,
+    build_day_prompt,
     build_news_prompt,
     build_prompt,
+    parse_day_summary,
     parse_summary,
     stub_summary,
 )
@@ -38,19 +40,33 @@ def job_from_pending_json(raw: dict, top_m: int = 5) -> Job:
 
     PRD-021: when raw.mode == "news-spike", we capture event_date +
     event_paragraph instead of feeding doc text. The biographical and
-    news prompts diverge inside generate()."""
+    news prompts diverge inside generate().
+
+    PRD-029: when raw.mode == "day-roundup", every results[] entry is
+    one event for the day (title=entity, text=event paragraph,
+    optional category). We use the full list (up to a safety cap of
+    25 events, not top_m), since the roundup needs breadth, not just
+    the top few.
+    """
     if raw.get("schema_version") not in (None, 1):
         raise GenerationError(f"unknown schema_version {raw.get('schema_version')!r}")
     if not raw.get("query") or not raw.get("query_norm"):
         raise GenerationError("missing query / query_norm")
+    mode = raw.get("mode") or "biographical"
+    # Day-roundup keeps the full results list (producer already caps).
+    # Other modes keep top_m so the prompt stays compact.
+    if mode == "day-roundup":
+        results = (raw.get("results") or [])[:25]
+    else:
+        results = (raw.get("results") or [])[:top_m]
     docs = []
-    for r in raw.get("results", [])[:top_m]:
+    for r in results:
         docs.append(JobDoc(
-            rank=int(r.get("rank", len(docs) + 1)),
+            rank=int(r.get("rank", len(docs) + 1)) if isinstance(r.get("rank"), (int, float)) else len(docs) + 1,
             title=r.get("title") or r.get("docno") or "(untitled)",
             text=r.get("text") or "",
+            category=r.get("category"),
         ))
-    mode = raw.get("mode") or "biographical"
     return Job(
         query=raw["query"],
         query_norm=raw["query_norm"],
@@ -81,8 +97,15 @@ def _generate_ollama(job: Job, cfg: dict) -> str:
         if not job.event_paragraph:
             raise GenerationError("news-spike job missing event_paragraph")
         system, user = build_news_prompt(job)
+        parser = lambda raw: parse_summary(raw, job.query)
+    elif job.mode == "day-roundup":
+        if not job.docs:
+            raise GenerationError("day-roundup job has no events")
+        system, user = build_day_prompt(job)
+        parser = parse_day_summary
     else:
         system, user = build_prompt(job, per_doc_cap)
+        parser = lambda raw: parse_summary(raw, job.query)
     payload = {
         "model": model,
         "messages": [
@@ -112,7 +135,7 @@ def _generate_ollama(job: Job, cfg: dict) -> str:
             with urllib.request.urlopen(req, timeout=600) as resp:
                 data = json.loads(resp.read())
             raw = (data.get("message") or {}).get("content", "")
-            return parse_summary(raw, job.query)
+            return parser(raw)
         except (urllib.error.URLError, ValueError, json.JSONDecodeError) as e:
             last_err = e
             time.sleep(2 + attempt * 4)

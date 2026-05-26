@@ -74,6 +74,61 @@ def test_build_prompt_includes_query_and_docs():
     assert "knowledge-panel" in system or "summary" in system.lower()
 
 
+# PRD-029 day-roundup mode.
+
+def test_day_roundup_job_parses():
+    raw = json.loads((REPO / "tests/fixtures/2026-05-25-day.json").read_text())
+    job = gen.job_from_pending_json(raw)
+    assert job.mode == "day-roundup"
+    assert job.event_date == "2026-05-25"
+    assert len(job.docs) == 5
+    # category should survive into JobDoc.
+    cats = sorted({d.category for d in job.docs})
+    assert "world" in cats and "tech" in cats and "sport" in cats
+
+
+def test_day_roundup_prompt_lists_events():
+    raw = json.loads((REPO / "tests/fixtures/2026-05-25-day.json").read_text())
+    job = gen.job_from_pending_json(raw)
+    system, user = pr.build_day_prompt(job)
+    assert "what happened today" in system.lower() or "roundup" in system.lower()
+    assert "2026-05-25" in user
+    assert "EVENT 1: Iran" in user
+    assert "[world]" in user
+    assert "[tech]" in user
+
+
+def test_day_roundup_stub_passes_validator():
+    raw = json.loads((REPO / "tests/fixtures/2026-05-25-day.json").read_text())
+    job = gen.job_from_pending_json(raw)
+    md = gen.generate(job, {"backend": "stub"})
+    # Must round-trip through the day-roundup validator.
+    out = pr.parse_day_summary(md)
+    assert out, "stub must produce parseable day-roundup output"
+    # At least 3 bolded entities per the prompt rules.
+    assert out.count("**") >= 6, "expected >= 3 bolded entities"
+
+
+def test_parse_day_summary_rejects_bullets():
+    # Long enough to pass the word-count gate (>= 40 words), so the
+    # bullet check actually fires.
+    body = " ".join([
+        "On 25 May 2026, **Iran** reached a phased IAEA framework",
+        "after talks in Vienna; **Ukraine** intercepted a record drone",
+        "wave overnight; in tech, **OpenAI** launched a long-context",
+        "tier and **Apple** beat quarterly expectations; **Manchester",
+        "City** sealed a fifth straight Premier League title with a",
+        "1-1 draw, a fitting cap to a long and eventful season.",
+    ])
+    md = body + "\n- a stray bullet should be rejected"
+    try:
+        pr.parse_day_summary(md)
+    except ValueError as e:
+        assert "bullet" in str(e).lower(), f"unexpected reason: {e}"
+        return
+    raise AssertionError("expected ValueError on bullets in day roundup")
+
+
 def main():
     tests = [
         test_stub_produces_summary,
@@ -82,6 +137,10 @@ def main():
         test_parse_summary_too_short,
         test_cap_doc_text_at_utf8_boundary,
         test_build_prompt_includes_query_and_docs,
+        test_day_roundup_job_parses,
+        test_day_roundup_prompt_lists_events,
+        test_day_roundup_stub_passes_validator,
+        test_parse_day_summary_rejects_bullets,
     ]
     fails = 0
     for t in tests:

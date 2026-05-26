@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "mode": "day-roundup",
+  "query": "What happened on 2026-05-25",
+  "query_norm": "2026-05-25:day",
+  "event_date": "2026-05-25",
+  "results": [
+    {
+      "title": "Iran",
+      "docno": "Iran",
+      "category": "world",
+      "rank": 3.3,
+      "text": "On 25 May 2026, Iran agreed to a 12-month framework for phased IAEA inspections following EU-mediated talks in Vienna. The agreement was characterised as a confidence-building step ahead of broader negotiations on the nuclear programme."
+    },
+    {
+      "title": "Ukraine",
+      "docno": "Ukraine",
+      "category": "world",
+      "rank": 2.4,
+      "text": "Ukrainian air defences intercepted 73 drones during overnight strikes on 25 May 2026, the largest single-night total reported during the year. No energy infrastructure damage was reported."
+    },
+    {
+      "title": "OpenAI",
+      "docno": "OpenAI",
+      "category": "tech",
+      "rank": 2.2,
+      "text": "OpenAI announced a long-context tier of its API on 25 May 2026, targeting enterprise legal and research workflows with a one-million-token window at a new pricing point."
+    },
+    {
+      "title": "Apple Inc.",
+      "docno": "Apple_Inc.",
+      "category": "business",
+      "rank": 1.9,
+      "text": "Apple reported quarterly results that beat analyst expectations on services revenue, sending its shares up in after-hours trading on 25 May 2026."
+    },
+    {
+      "title": "Manchester City F.C.",
+      "docno": "Manchester_City_F.C.",
+      "category": "sport",
+      "rank": 1.7,
+      "text": "Manchester City secured a fifth consecutive Premier League title on 25 May 2026 after a 1-1 draw against Tottenham Hotspur in the final fixture of the season."
+    }
+  ]
+}

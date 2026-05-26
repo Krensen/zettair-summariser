@@ -85,9 +85,22 @@ tests/
 python3 tests/test_round_trip.py
 ```
 
-Six tests covering prompt assembly, output parsing, stub generation, and UTF-8 boundary handling. No network, no model required.
+Ten tests covering prompt assembly, output parsing, stub generation, UTF-8 boundary handling, and the PRD-029 day-roundup mode. No network, no model required.
+
+## Job modes
+
+The producer writes a `mode` field in each pending job. The worker dispatches:
+
+| `mode`         | Source                  | Prompt                          | Parser              |
+|----------------|-------------------------|---------------------------------|---------------------|
+| `biographical` | `results[]` doc text    | `build_prompt`                  | `parse_summary`     |
+| `news-spike`   | `event_paragraph`       | `build_news_prompt`             | `parse_summary`     |
+| `day-roundup`  | `results[]` (one per event) | `build_day_prompt`          | `parse_day_summary` |
+
+`day-roundup` is PRD-029: an editor-style "what happened today" paragraph (80-160 words, multiple bolded entities, no bullets) used by the news timeline at zettair.io/news.
 
 ## See also
 
 - [PRD-018 — Knowledge panel](https://github.com/Krensen/zettair-search/blob/main/prd/PRD-018-knowledge-panel.md) — full architecture doc.
+- [PRD-029 — News timeline](https://github.com/Krensen/zettair-search/blob/main/prd/PRD-029-news-timeline.md) — the day-roundup consumer.
 - [zettair-search](https://github.com/Krensen/zettair-search) — the search service this feeds.

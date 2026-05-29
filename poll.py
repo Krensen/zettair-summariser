@@ -86,6 +86,23 @@ RSYNC_FLAGS = [
 ]
 
 
+def _run_rsync(cmd: list[str]) -> tuple[int, str, str]:
+    """Run an rsync command, returning (rc, stdout, stderr) with
+    UTF-8-replace decoding.
+
+    We can't use subprocess.run(..., text=True) here because rsync's
+    stdout includes filenames in whatever encoding the filesystem
+    uses, and a single non-UTF-8 byte (e.g. from a producer that
+    emitted a Latin-1 filename) crashes the whole sweep with a
+    UnicodeDecodeError. Capturing as bytes and decoding with
+    errors='replace' lets the worker survive bad filenames and
+    log a safe approximation of them."""
+    r = subprocess.run(cmd, capture_output=True)
+    out = (r.stdout or b"").decode("utf-8", errors="replace")
+    err = (r.stderr or b"").decode("utf-8", errors="replace")
+    return r.returncode, out, err
+
+
 def _rsync_pull_one(cfg: dict, remote_path: str, local_inbox) -> int:
     """Pull *.json from one remote dir into one local inbox.
     Returns number of new files claimed (post - pre)."""
@@ -97,9 +114,9 @@ def _rsync_pull_one(cfg: dict, remote_path: str, local_inbox) -> int:
         "--include=*.json", "--exclude=*",
         remote, str(local_inbox) + "/",
     ]
-    r = subprocess.run(cmd, capture_output=True, text=True)
-    if r.returncode != 0:
-        log(cfg, f"rsync pull {remote_path} failed rc={r.returncode}: {r.stderr.strip()[:200]}")
+    rc, _out, err = _run_rsync(cmd)
+    if rc != 0:
+        log(cfg, f"rsync pull {remote_path} failed rc={rc}: {err.strip()[:200]}")
     after = len(list(local_inbox.glob("*.json")))
     return max(0, after - before)
 
@@ -139,14 +156,14 @@ def rsync_push(cfg: dict) -> tuple[int, int]:
             str(out) + "/",
             f'{cfg["prod"]["ssh_host"]}:{cfg["prod"]["remote_done"]}/',
         ]
-        r = subprocess.run(cmd, capture_output=True, text=True)
+        rc, out_buf, err_buf = _run_rsync(cmd)
         after_done = len(list(out.glob("*.md")))
         n_done = before_done - after_done
-        if r.returncode != 0:
-            log(cfg, f"rsync push done failed rc={r.returncode}: {r.stderr.strip()[:300]}")
+        if rc != 0:
+            log(cfg, f"rsync push done failed rc={rc}: {err_buf.strip()[:300]}")
         elif n_done != before_done:
             # rsync exited 0 but didn't actually move everything we expected.
-            log(cfg, f"rsync push done suspicious: before={before_done} after={after_done} stdout={r.stdout.strip()[:300]} stderr={r.stderr.strip()[:300]}")
+            log(cfg, f"rsync push done suspicious: before={before_done} after={after_done} stdout={out_buf.strip()[:300]} stderr={err_buf.strip()[:300]}")
 
     if before_err:
         cmd = [
@@ -155,13 +172,13 @@ def rsync_push(cfg: dict) -> tuple[int, int]:
             str(err) + "/",
             f'{cfg["prod"]["ssh_host"]}:{cfg["prod"]["remote_errors"]}/',
         ]
-        r = subprocess.run(cmd, capture_output=True, text=True)
+        rc, out_buf, err_buf = _run_rsync(cmd)
         after_err = len(list(err.glob("*.json")))
         n_err = before_err - after_err
-        if r.returncode != 0:
-            log(cfg, f"rsync push errors failed rc={r.returncode}: {r.stderr.strip()[:300]}")
+        if rc != 0:
+            log(cfg, f"rsync push errors failed rc={rc}: {err_buf.strip()[:300]}")
         elif n_err != before_err:
-            log(cfg, f"rsync push errors suspicious: before={before_err} after={after_err} stdout={r.stdout.strip()[:300]} stderr={r.stderr.strip()[:300]}")
+            log(cfg, f"rsync push errors suspicious: before={before_err} after={after_err} stdout={out_buf.strip()[:300]} stderr={err_buf.strip()[:300]}")
 
     return n_done, n_err
 

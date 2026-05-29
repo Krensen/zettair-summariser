@@ -129,6 +129,22 @@ def test_parse_day_summary_rejects_bullets():
     raise AssertionError("expected ValueError on bullets in day roundup")
 
 
+def test_run_rsync_survives_invalid_utf8_in_output():
+    """Regression: poll.py used subprocess.run(..., text=True) which
+    crashed the whole sweep when rsync's stdout included a filename
+    with non-UTF-8 bytes. Verify the new helper decodes with
+    errors='replace' instead of raising."""
+    import poll as pl  # imported here so the module's top-level code only runs when this test fires
+    # `printf` with an explicit \xe2 byte that is NOT followed by a valid UTF-8 continuation;
+    # this is the exact byte pattern that crashed the production worker.
+    cmd = ["bash", "-c", "printf 'before\\xe2after\\n'"]
+    rc, out, err = pl._run_rsync(cmd)
+    assert rc == 0, f"shell exited rc={rc}"
+    # The bad byte should have been replaced (U+FFFD) rather than raised.
+    assert "�" in out, "expected replacement char from utf-8 errors='replace'"
+    assert "before" in out and "after" in out
+
+
 def main():
     tests = [
         test_stub_produces_summary,
@@ -141,6 +157,7 @@ def main():
         test_day_roundup_prompt_lists_events,
         test_day_roundup_stub_passes_validator,
         test_parse_day_summary_rejects_bullets,
+        test_run_rsync_survives_invalid_utf8_in_output,
     ]
     fails = 0
     for t in tests:
